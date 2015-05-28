@@ -1,0 +1,8 @@
+"Foobar2000 version by kode54\n
+Original library and concept by Neill Corlett" 
+ "\n\n
+http://www.neillcorlett.com/\n
+http://kode54.foobar2000.org/";
+
+    DeaDBeeF - ultimate music player for GNU/Linux systems with X11
+    Copyright (C) 2009-2012 Alexey Yakovenko <waker@users.sourceforge.net>
