@@ -21,7 +21,10 @@
 * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
 */
 
-This is a JavaScript/WebAudio version of HighlyExperimental: It allows to play Playstation 1&2 music.(which can be found on pages
+This is a JavaScript/WebAudio plugin of HighlyExperimental. This plugin is designed to work with version 1.0 of my 
+generic WebAudio ScriptProcessor music player (see separate project). 
+
+It allows to play Playstation 1&2 music.(which can be found on pages
 like these: http://www.vgmusic.com/music/console/sony/ps1/, http://www.zophar.net/music/psf.html, etc)
 
 A live demo of this program can be found here: http://www.wothke.ch/webpsx/
@@ -38,10 +41,11 @@ ANY additions or manual changes on the installation. The below instructions assu
 folder has been moved into the main emscripten folder (maybe not necessary) and that a command prompt has been 
 opened within the webpsx/emscripten sub-folder, and that the Emscripten environment vars have been set (run emsdk_env.bat).
 
-Running the makeEmscripten.bat will generate a JavaScript 'HighlyExperimental' library (web_psx.js) including the above mentioned 
-interface APIs. This lib is directly written into the web-page example in the "htdocs" sub-folder. (This generated lib is 
-used from some manually written JavaScript/WebAudio code, see htdocs/sample_player.js). Study the example in "htdocs" 
-for how the player is used. This player requires an original PlayStation2 BIOS image - which is NOT bundled here due to copyright concerns (When installing the player on your own computer you can easily configure the index.html page to automatically use your own 4mb PS2 BIOS image - or a .gz version thereof.).
+Running the makeEmscripten.bat will generate a JavaScript 'HighlyExperimental' library (backend_psx.js).
+This lib is directly written into the web-page example in the "htdocs" sub-folder. Study the example in "htdocs" 
+for how the player is used. This plugin requires an original PlayStation2 BIOS image - which is NOT bundled here due 
+to copyright concerns (When installing the plugin on your own computer you can easily configure the index.html page to 
+automatically use your own 4mb PS2 BIOS image - or a .gz version thereof.).
 
 This project comes without any music files, so you'll also have to get your own and place them
 in the htdocs/music folder (you can configure them in the 'songs' list in index.html).

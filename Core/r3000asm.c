@@ -128,7 +128,8 @@ static const char *scan(const char *text, uint32 *token, uint32 *subtoken) {
   //
   // Token: C0 register
   //
-  if(tolower(s[0]) == 'C' && s[1] == '0' && s[2] == '_') {
+//  if(tolower(s[0]) == 'C' && s[1] == '0' && s[2] == '_') {	// FIXME garbage! tolower == 'C' !!!
+  if(tolower(s[0]) == 'c' && s[1] == '0' && s[2] == '_') {
     int regnum = 0;
     s += 3;
     if(myisdigit(*s)) {

@@ -81,7 +81,7 @@ int em_fseek( void * handle, int64_t offset, int whence ) {return fseek( (FILE*)
 long int em_ftell( void * handle ) {return  ftell( (FILE*) handle );}
 int em_fclose( void * handle  ) {return fclose( (FILE *) handle  );}
 
-void em_conf_get_str(const char*k, const char*v, char*buf, int maxSize) {strncpy(buf, "PSX2BIOS", 11);}
+void em_conf_get_str(const char*k, const char*v, char*buf, int maxSize) {strncpy(buf, "PSX2ROM.gz", maxSize);}
 
 size_t em_fgetlength( FILE * f) {
 	int fd= fileno(f);
@@ -268,7 +268,7 @@ struct psf_load_state
     struct psf_tag *tags;
 };
 
-#ifndef EMSCREIPTEN
+#ifndef EMSCRIPTEN
 static int psf_info_meta(void * context, const char * name, const char * value)
 {
     struct psf_load_state * state = ( struct psf_load_state * ) context;
@@ -292,7 +292,8 @@ static int psf_info_meta(void * context, const char * name, const char * value)
     return 0;
 }
 #else
-#define psf_info_meta psf_info_dump
+	// define in adaper.cpp
+	extern int psf_info_meta(void * context, const char * name, const char * value);
 #endif
 
 static int psf_info_dump(void * context, const char * name, const char * value)
@@ -465,6 +466,24 @@ he_open (uint32_t hints) {
     return _info;
 }
 #ifdef EMSCRIPTEN
+
+
+int he_get_sample_rate (DB_fileinfo_t *_info) {
+    he_info_t *info = (he_info_t *)_info;
+	return info->info.fmt.samplerate;
+}
+
+int he_get_samples_to_play (DB_fileinfo_t *_info) {
+    he_info_t *info = (he_info_t *)_info;
+	return info->samples_to_play;
+}
+int he_get_samples_played (DB_fileinfo_t *_info) {
+    he_info_t *info = (he_info_t *)_info;
+	return info->samples_played;
+}
+	
+	
+	
 int isCompressed(const char *filename) {
 	char* point;
 	if((point = strrchr(filename,'.')) != NULL ) {
@@ -472,6 +491,7 @@ int isCompressed(const char *filename) {
 	}
 	return 0;
 }
+
 int inflate2(const void *src, int srcLen, void *dst, int dstLen) {
     z_stream strm  = {0};
     strm.total_in  = strm.avail_in  = srcLen;
@@ -607,6 +627,7 @@ he_init (DB_fileinfo_t *_info, DB_playItem_t *it) {
 #else
 int he_init (DB_fileinfo_t *_info, const char * uri) {
     he_info_t *info = (he_info_t *)_info;
+	info->path = strdup( uri );
 #endif
 	
     int psf_version = psf_load( uri, &psf_file_system, 0, 0, 0, 0, 0, 0 );
@@ -653,24 +674,7 @@ int he_init (DB_fileinfo_t *_info, const char * uri) {
         }
         psx_set_readfile( info->emu, virtual_readfile, info->psf2fs );
     }
-#ifdef EMSCRIPTEN
-    struct psf_tag * tag = state.tags;
-	set_name("");
-	set_album("");
-	set_date("");
-	
-    while ( tag ) {
-        if ( !strncasecmp( tag->name, "name", 4 ) ) {
-			set_name(tag->value);
-		} else if ( !strncasecmp( tag->name, "album", 5 ) ) {
-			set_album(tag->value);
-		} else if ( !strncasecmp( tag->name, "date", 4 ) ) {
-			set_date(tag->value);
-		} 
-        tag = tag->next;
-    }
-    free_tags( state.tags );
-#endif
+
     if ( state.refresh )
         psx_set_refresh( info->emu, state.refresh );
 

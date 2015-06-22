@@ -28,6 +28,15 @@
 //
 #define RENDERMAX (200)
 
+#ifdef EMSCRIPTEN
+unsigned char volBoost;
+
+void setVolumeBoost(unsigned char b) {
+	volBoost= b;
+} 
+
+#endif
+
 ////////////////////////////////////////////////////////////////////////////////
 /*
 ** Static information
@@ -1827,8 +1836,14 @@ static void EMU_CALL render(struct SPUCORE_STATE *state, uint16 *ram, sint16 *bu
       q_l += r_l;
       q_r += r_r;
       CLIP_PCM_2(q_l, q_r);
+#ifndef EMSCRIPTEN	  
       *buf++ = (sint16)q_l;
       *buf++ = (sint16)q_r;
+#else
+	// some songs just do not seem to play loud enough..
+      *buf++ = (sint16)(q_l << volBoost);
+      *buf++ = (sint16)(q_r << volBoost);
+#endif
     }
   }
 }
