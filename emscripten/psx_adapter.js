@@ -86,7 +86,7 @@ PSXBackendAdapter = (function(){ var $this = function (presetBIOS) {
 		registerFileData: function(pathFilenameArray, data) {
 			return this.registerEmscriptenFileData(pathFilenameArray, data);
 		},
-		loadMusicData: function(sampleRate, path, filename, data) {
+		loadMusicData: function(sampleRate, path, filename, data, options) {
 			var ret = this.Module.ccall('emu_init', 'number', 
 								['string', 'string'], 
 								[ path, filename]);
