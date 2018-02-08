@@ -120,7 +120,7 @@ static DB_functions_t *deadbeef;
 
 #define BORK_TIME 0xC0CAC01A
 
-inline unsigned get_le32( void const* p )
+static unsigned get_le32( void const* p )
 {
     return  (unsigned) ((unsigned char const*) p) [3] << 24 |
             (unsigned) ((unsigned char const*) p) [2] << 16 |

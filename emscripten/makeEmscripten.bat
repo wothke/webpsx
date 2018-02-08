@@ -17,7 +17,8 @@ setlocal enabledelayedexpansion
 SET ERRORLEVEL
 VERIFY > NUL
 
-set "OPT=  -Wcast-align -fno-strict-aliasing -s VERBOSE=0 -s SAFE_HEAP=0 -s DISABLE_EXCEPTION_CATCHING=0  -DEMU_COMPILE -DEMU_LITTLE_ENDIAN -DHAVE_STDINT_H -DNO_DEBUG_LOGS -Wno-pointer-sign -I. -I.. -I../Core -I../psflib  -I../zlib  -Os -O3"
+:: **** use the "-s WASM" switch to compile WebAssembly output. warning: the SINGLE_FILE approach does NOT currently work in Chrome 63.. ****
+set "OPT=   -s WASM=0 -s ASSERTIONS=0 -s FORCE_FILESYSTEM=1 -Wcast-align -fno-strict-aliasing -s VERBOSE=0 -s SAFE_HEAP=0 -s DISABLE_EXCEPTION_CATCHING=0  -DEMU_COMPILE -DEMU_LITTLE_ENDIAN -DHAVE_STDINT_H -DNO_DEBUG_LOGS -Wno-pointer-sign -I. -I.. -I../Core -I../psflib  -I../zlib  -Os -O3 "
 
 if not exist "built/he.bc" (
 	call emcc.bat -DHAVE_STDINT_H %OPT% ../Core/psx.c ../Core/ioptimer.c ../Core/iop.c ../Core/bios.c ../Core/r3000dis.c ../Core/r3000asm.c ../Core/r3000.c ../Core/vfs.c ../Core/spucore.c ../Core/spu.c ../Core/mkhebios.c ../psflib/psf2fs.c  ../psflib/psflib.c -o built/he.bc
@@ -34,6 +35,6 @@ if not exist "built/adapter.bc" (
 	IF !ERRORLEVEL! NEQ 0 goto :END
 )
   
-call emcc.bat %OPT% -s TOTAL_MEMORY=67108864 --closure 1  built/he.bc built/zlib.bc built/adapter.bc  -s EXPORTED_FUNCTIONS="['_alloc', '_emu_setup', '_emu_init','_emu_teardown','_emu_get_current_position','_emu_seek_position','_emu_get_max_position','_emu_set_subsong','_emu_get_track_info','_emu_get_sample_rate','_emu_get_audio_buffer','_emu_get_audio_buffer_length','_emu_compute_audio_samples']"  -o htdocs/web_psx2.html && copy /b shell-pre.js + htdocs\web_psx2.js + shell-post.js htdocs\web_psx.js && del htdocs\web_psx2.html && del htdocs\web_psx2.js && copy /b htdocs\web_psx.js + psx_adapter.js htdocs\backend_psx.js
+call emcc.bat %OPT% -s TOTAL_MEMORY=67108864 --memory-init-file 0 --closure 1 --llvm-lto 1  built/he.bc built/zlib.bc built/adapter.bc  -s EXPORTED_FUNCTIONS="['_alloc', '_emu_setup', '_emu_init','_emu_teardown','_emu_get_current_position','_emu_seek_position','_emu_get_max_position','_emu_set_subsong','_emu_get_track_info','_emu_get_sample_rate','_emu_get_audio_buffer','_emu_get_audio_buffer_length','_emu_compute_audio_samples', '_malloc', '_free']"  -o htdocs/web_psx2.js  -s SINGLE_FILE=0 -s EXTRA_EXPORTED_RUNTIME_METHODS="['ccall', 'Pointer_stringify']"  -s BINARYEN_ASYNC_COMPILATION=1 -s BINARYEN_TRAP_MODE='clamp' && copy /b shell-pre.js + htdocs\web_psx2.js + shell-post.js htdocs\web_psx.js && del htdocs\web_psx2.js && copy /b htdocs\web_psx.js + psx_adapter.js htdocs\backend_psx.js && del htdocs\web_psx.js
 
 :END
