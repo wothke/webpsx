@@ -39,8 +39,10 @@ the backend_psx.js library. (To create a clean-build you have to delete any prev
 'built' sub-folder!) The content of the "htdocs" can be tested by first copying it into some 
 document folder of a web server. 
 
-
 ## Depencencies
+
+The current version requires version 1.02 (older versions will not
+support WebAssembly) of my https://github.com/wothke/webaudio-player.
 
 This plugin requires an original PlayStation2 BIOS image - which is NOT bundled here due 
 to copyright concerns (When installing the plugin on your own computer you can easily configure the index.html page to 
