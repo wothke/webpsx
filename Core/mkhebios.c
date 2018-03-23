@@ -461,8 +461,11 @@ static int find_romdir_code(struct MKHEBIOS * state) {
   return 0;
 }
 
+#ifdef EMSCRIPTEN
+#include "mkhebios_zoverlays.h"
+#else
 #include "mkhebios_overlays.h"
-
+#endif
 /***************************************************************************/
 /*
 ** Returns nonzero on error
@@ -496,7 +499,7 @@ static int irx(struct MKHEBIOS * state, const char *modname) {
   n[10] = 0;
 
   goto try_file;
-
+  
 try_file:
   memset(&mod, 0, sizeof(struct MODULE));
   {
@@ -838,8 +841,76 @@ int mkhebios_script_line(void *ctx, int linenum, const char *line) {
 
 #include "mkhebios_scripts.h"
 
+#include "zlib.h"
+/* EMSCRIPTEN  tmp utility to cerate compressed version of overlays.
+void dumpComressed(uint8 * data, long size) {
+	for (int i= 0; i<size; i++) {
+		fprintf(stdout, "%d,", data[i]);
+	}
+}
+void dumpComressedOverlays() {
+	for (int i= 0; i<sizeof(modules_list); i++) {
+		if (!modules_list[i].size) break;
+		uint8 * dataDest= malloc(modules_list[i].size);	// who cares about the leak here..
+		long newSize= modules_list[i].size;
+		if (Z_OK != compress(dataDest, &newSize, modules_list[i].data, modules_list[i].size)) {
+			fprintf(stderr, "ERROR!");	
+		}
+		fprintf(stdout, "static const uint32 len_module_%s = %d;\n", modules_list[i].name, modules_list[i].size);
+		fprintf(stdout, "static const uint8 zmodule_%s[] = {\n", modules_list[i].name);
+		dumpComressed(dataDest, newSize);
+		fprintf(stdout, "}; \n");
+	}	
+	
+	fprintf(stdout, "static struct\n");
+	fprintf(stdout, "{\n");
+	fprintf(stdout, "    const char * name;\n");
+	fprintf(stdout, "    const uint8 * data;\n");
+	fprintf(stdout, "    int size;\n");
+	fprintf(stdout, "    int origSize;\n");
+	fprintf(stdout, "}\n");
+	fprintf(stdout, "modules_list[] =\n");
+	fprintf(stdout, "{\n");
+	fprintf(stdout, "    { \"fileio\", zmodule_fileio, sizeof(zmodule_fileio), len_module_fileio},\n");
+	fprintf(stdout, "    { \"he\", zmodule_he, sizeof(zmodule_he), len_module_he },\n");
+	fprintf(stdout, "    { \"ioman\", zmodule_ioman, sizeof(zmodule_ioman), len_module_ioman },\n");
+	fprintf(stdout, "    { \"loadcore\", zmodule_loadcore, sizeof(zmodule_loadcore), len_module_loadcore },\n");
+	fprintf(stdout, "    { \"loadfile\", zmodule_loadfile, sizeof(zmodule_loadfile), len_module_loadfile },\n");
+	fprintf(stdout, "    { \"modload\", zmodule_modload, sizeof(zmodule_modload), len_module_modload },\n");
+	fprintf(stdout, "    { \"sifinit\", zmodule_sifinit, sizeof(zmodule_sifinit), len_module_sifinit },\n");
+	fprintf(stdout, "    { \"stdio\", zmodule_stdio, sizeof(zmodule_stdio), len_module_stdio },\n");
+	fprintf(stdout, "    { \"sysclib\", zmodule_sysclib, sizeof(zmodule_sysclib), len_module_sysclib },\n");
+	fprintf(stdout, "    { \"threadman\", zmodule_threadman, sizeof(zmodule_threadman), len_module_threadman },\n");
+	fprintf(stdout, "    { \"timemani\", zmodule_timemani, sizeof(zmodule_timemani), len_module_timemani },\n");
+	fprintf(stdout, "    { NULL, NULL, 0, 0 }\n");
+	fprintf(stdout, "};\n");
+}
+*/
+
+void expandOverlays() {
+	// arrays blow up size of generated JavaScript.. compress them to reduce lib size by 110kb ...
+	
+	for (int i= 0; i<sizeof(modules_list); i++) {
+		if (!modules_list[i].size) break;
+		
+		long destSize= modules_list[i].origSize;
+		uint8 * dataDest= malloc(destSize);
+		
+		long newSize= modules_list[i].size;
+		if (Z_OK != uncompress(dataDest, &destSize, modules_list[i].data, modules_list[i].size)) {
+			fprintf(stderr, "ERROR!");	
+		}
+		modules_list[i].data= (const uint8*)dataDest;	// replace compressed data (too bad about the mem leak..)
+		modules_list[i].size= destSize;		
+	}	
+}
 void * EMU_CALL mkhebios_create( void * ps2_bios, int *size )
 {
+#ifdef EMSCRIPTEN
+	//dumpComressedOverlays();
+	expandOverlays();
+#endif
+
   int rval;
 
   void * bios_out;
