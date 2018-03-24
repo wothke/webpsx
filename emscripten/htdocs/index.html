@@ -71,9 +71,10 @@ PSXDisplayAccessor = (function(){ var $this = function (doGetSongInfo) {
 	
 // PSX specific "player controls" extended by manual BIOS loading step
 PSXPlayerControls = (function(){ var $this = function (songs, enableSeek, doParseUrl) { 
-		$this.base.call(this, songs, enableSeek, false, doParseUrl);
+		$this.base.call(this, songs, enableSeek, false, doParseUrl, null, -1);
 	}; 
 	extend(BasicPlayerControls, $this, {
+/* enable to activate upload of specific bios:
 		dropbios: function(ev) {
 			var options= {};
 			options.setBIOS= true;
@@ -84,6 +85,7 @@ PSXPlayerControls = (function(){ var $this = function (songs, enableSeek, doPars
 			dropBiosDiv.ondrop  = this.dropbios.bind(this);
 			dropBiosDiv.ondragover = this.allowDrop.bind(this);
 		}
+*/
 	});	return $this; })();	
 	
 // link player events to "controls" and "display"
@@ -94,25 +96,38 @@ function doOnTrackReadyToPlay(){
 	ScriptNodePlayer.getInstance().play();
 	songDisplay.redrawSongInfo();
 }
+// depending on the browser/timing the player may be ready before or after (see WASM) init(), i.e.
+// the startup sequence must handle both cases (music can only be started when
+// both the player is ready and init() has been completed..)
+var playerReady= false;		
 function doOnPlayerReady() {
 	// BIOS successfully loaded.. close the modal dialog
 	window.location.hash= '';
-	if (playerControls) playerControls.playNextSong();
+
+	playerReady= true;
+	if (playerControls) playerControls.playNextSong(); // playerControls are used to check for init()
 }
 
+
 function init() {
+/*	enable to activate upload of specific bios:
 	window.location.hash= '';			// needed if URL already contains the #openModal
 	window.location.hash= 'openModal';	// open modal dialog for BIOS selection
-
+*/
 	// --------------------------- PSX music player -----------------------
 	var basePath= '';
-	ScriptNodePlayer.createInstance(new PSXBackendAdapter(true), basePath, [
-		// if default name should to be used: place "PSX2ROM.gz" 
-		// file here and use "new PSXBackendAdapter(false)" above 
+	ScriptNodePlayer.createInstance(new PSXBackendAdapter(false, true), basePath, [ ""	// use built-in
+		// if default name should be used: place "PSX2ROM.gz" 
+		// file here and use "new PSXBackendAdapter(false)" above (use "true" if bios upload is to be used)
 	], true, doOnPlayerReady, doOnTrackReadyToPlay, doOnTrackEnd);
 		
 	// --------------------------- UI - basic player controls --------------
 	var songs = [
+		"/modland/proxy.php?mod=Playstation Sound Format/Makoto Tomozawa/Resident Evil - Complete Disc/01 main menu.minipsf",
+		"/modland/proxy.php?mod=Playstation Sound Format/Josh Mancell/Crash Bandicoot/14 papu papu.psf",
+		"/modland/proxy.php?mod=Playstation Sound Format/Mark Mothersbaugh/Crash Bandicoot 2 - Cortex Strikes Back/01 title screen.minipsf",
+		"/modland/proxy.php?mod=Playstation Sound Format/Mark Mothersbaugh/Crash Bandicoot 3 - Warped/02 warp room.minipsf",
+		"/modland/proxy.php?mod=Playstation Sound Format/Masami Ueda/Resident Evil 2/	06 - prologue.minipsf",
 	];
 	playerControls= new PSXPlayerControls(songs, true, 
 				(function(someSong) {
@@ -124,14 +139,14 @@ function init() {
 	songDisplay= new SongDisplay(new PSXDisplayAccessor((function(){return playerControls.getSongInfo();})), 
 								[0x0010ff,0x00f0ff], 1, 0.1, (function(){playerControls.animate()}));
 
-	playerControls.playNextSong();
+	if (playerReady) playerControls.playNextSong();	// player was ready before it could trigger the playback
 }
 </script>
 <script type="text/javascript" src="stdlib/analytics.js"></script>
 </head>
 
 <body onload="init();">
-
+<!-- enable to activate upload of specific bios
 <div id="openModal" class="modalDialog">
 	<div>
 		<h2>PlayStation2 setup</h2>
@@ -142,12 +157,14 @@ function init() {
   
 	</div>
 </div>
+-->
 <div class="tooltip" id="tooltip" alt= "This is a hobby project, but it costs not only time to regularily maintain this site but also money to pay for the internet service provider (etc). If you want to keep this site up and running.. or if you just like my work (see https://jwothke.wordpress.com/) and you'd like to see more of it in the future, please make a contribution. Thank you!"></div>
 
 <details>
   <summary>What's this?</summary>
   <div>
-  <p>webPSX: Experimental JavaScript/HTML5 version of <a href="https://github.com/kode54/deadbeef_he/" target="_blank">Highly Experimental</a>. It plays Playstation 1 & 2 music(respective files can be found <a target="_blank" href="http://www.zophar.net/music/psf.html">here</a>.).</p>
+  <p>webPSX: Experimental JavaScript/HTML5 version of <a href="https://github.com/kode54/deadbeef_he/" target="_blank">Highly Experimental</a>. Plays 
+  Playstation 1 & 2 music (respective files can be found <a target="_blank" href="https://ftp.modland.com/pub/modules/Playstation%20Sound%20Format/">here</a>.).</p>
  
   <p>Bring your own music files by dropping them onto the below PlayStation. (In order to play a .minipsf file you first need to drop the .psflib file that it depends on.)</p>
  
@@ -167,11 +184,14 @@ function init() {
 </details>
 <aside></aside>
 <section>
-  <div id="logo" class="logo">
-	<div id="moz-reflect-logo"><canvas  id="logoCanvas"  width="600" height="250"></canvas></div>
+  <div id="logo">
+		<!-- in new Chrome the SHIT reflections disapear dependig on the canvas height.. what a fucking joke -->
+		<div id="moz-reflect-logo"><canvas  id="logoCanvas"  width="270" height="100"></canvas></div>	
   </div>
-  <div id="spectrum" class="spectrum">
-  	<div id="moz-reflect-spectrum"><canvas id="spectrumCanvas" width="512" height="200"></canvas></div>
+  
+  <div id="spectrum" >
+		<!-- use "hight" greater than 80 and the fucking reflection is gone.. FUCK YOU IDIOTS -->
+		<div id="moz-reflect-spectrum"><canvas id="spectrumCanvas" width="800" height="80"></canvas></div>
   </div>
   <div id="drop" class="drop"><img src="psx.gif" width=270 height=270/></div><!--see BasicPlayerControls-->
 </section>

@@ -65,7 +65,6 @@ extern "C" {
 
 	struct DB_fileinfo_t;
 	int he_init (struct DB_fileinfo_t *_info, const char * uri);
-	void he_load (void);
 	struct DB_fileinfo_t *he_open (uint32_t hints); 
 	int he_read (struct DB_fileinfo_t *_info, char *bytes, int size);
 	int he_install_bios(const char *he_bios_path);
@@ -75,7 +74,7 @@ extern "C" {
 	int he_seek_sample (DB_fileinfo_t *_info, int sample);
 	int he_get_sample_rate (DB_fileinfo_t *_info);
 	
-	int psf_info_meta(void * context, const char * name, const char * value) {
+	int psf_info_meta2(void * context, const char * name, const char * value) {
 		if ( !strcasecmp( name, "title" ) ) {
 			snprintf(title_str, TEXT_MAX, "%s", value);
 		} else if ( !strcasecmp( name, "artist" ) ) {
@@ -133,27 +132,19 @@ extern "C" void EMSCRIPTEN_KEEPALIVE emu_teardown (void) {
 extern "C" int emu_setup(char *bios_path) __attribute__((noinline));
 extern "C" EMSCRIPTEN_KEEPALIVE int emu_setup(char *bios_path)
 {
-	he_load();	// basic init
-	
-	return he_install_bios(bios_path);	// the first installed BIOS stays..
+	return he_install_bios(bios_path);	// the first installed BIOS stays; if "built-in hebios" is activated  bios_path is ignored
 }
 
 extern "C" int emu_init(char *basedir, char *songmodule) __attribute__((noinline));
 extern "C" EMSCRIPTEN_KEEPALIVE int emu_init(char *basedir, char *songmodule)
 {
-	he_load();	// basic init
-
 	emu_teardown();
 
 	clearInfoTexts();
 	
 	if (!song_info) song_info= he_open(0);
 	
-	if (he_init (song_info, songmodule) == 0) {
-	} else {
-		return -1;
-	}
-	return 0;
+	return he_init(song_info, songmodule);
 }
 
 extern "C" int emu_get_sample_rate() __attribute__((noinline));
@@ -194,13 +185,13 @@ extern "C" int EMSCRIPTEN_KEEPALIVE emu_compute_audio_samples() {
 
 	if (ret < 0) {
 		samples_available= 0;
-		return -1;
+		return 1;		// end song
 	} else {
 		samples_available= ret >>2; // 2*2bytes sample
 		if (size) {
 			return 0;
 		} else {
-			return 1;
+			return 1;	// end song
 		}		
 	}
 }

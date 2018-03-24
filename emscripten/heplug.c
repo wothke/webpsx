@@ -1,5 +1,17 @@
-
 /*
+	One of the first kode54 players that I had ported to WebAudio.. whereas the later ports
+	are based on kode54's foobar2000 plugins, this one is based on some DeaDBeeF version..
+	to which I later added hebios (compressed) from foo_qpsf (https://gitlab.kode54.net/kode54/foo_qpsf).
+
+	For ease of maintenance it would be better to ditch this impl and replace it with the 
+	"standard" foobar2000 kind of version.
+	
+	This lib can be compiled with or without a built-in hebios. (see BUILTIN_HEBIOS define). 
+	
+	PSF and PSF2 player based on Neill Corlett's Highly Experimental.
+	Copyright (C) 2003-2012 Chris Moeller <kode54@gmail.com>
+	Copyright (C) 2003-2012 Neill Corlett <neill@neillcorlett.com>
+	
     DeaDBeeF - ultimate music player for GNU/Linux systems with X11
     Copyright (C) 2009-2012 Alexey Yakovenko <waker@users.sourceforge.net>
 
@@ -18,24 +30,17 @@
     Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
-/*
-#include <linux/limits.h>
-*/
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef EMSCRIPTEN
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
 #include "zlib.h"
 
-#endif
-/*
-#include <deadbeef/deadbeef.h>
-*/
+#include "zhebios.h"
+
 #include <psx.h>
 #include <iop.h>
 #include <r3000.h>
@@ -55,33 +60,12 @@
       (char *) memcpy (__new, __old, __len);				      \
     }))
 
-#ifndef EMSCRIPTEN
-extern DB_decoder_t he_plugin;
-#endif
 
 #define trace(...) { fprintf(stderr, __VA_ARGS__); }
 //#define trace(fmt,...)
 
-#ifdef EMSCRIPTEN
-
-#define DB_FILE FILE
-// use "regular" file ops - which are provided by Emscripten (just make sure all files are previously loaded)
-
-extern void set_name(const char *name);
-extern void set_album(const char *name);
-extern void set_date(const char *name);
-
-void em_pl_lock(void) {}
-void em_pl_unlock(void) {}
-
-void* em_fopen( const char * uri ) { return (void*)fopen(uri, "r");}
-size_t em_fread( void * buffer, size_t size, size_t count, void * handle ) {return fread(buffer, size, count, (FILE*)handle );}
-int em_fseek( void * handle, int64_t offset, int whence ) {return fseek( (FILE*) handle, offset, whence );}
-
-long int em_ftell( void * handle ) {return  ftell( (FILE*) handle );}
-int em_fclose( void * handle  ) {return fclose( (FILE *) handle  );}
-
-void em_conf_get_str(const char*k, const char*v, char*buf, int maxSize) {strncpy(buf, "PSX2ROM.gz", maxSize);}
+// implemented on JavaScript side (also see callback.js) for "on-demand" file load:
+extern int psx_request_file(const char *filename);
 
 size_t em_fgetlength( FILE * f) {
 	int fd= fileno(f);
@@ -89,32 +73,7 @@ size_t em_fgetlength( FILE * f) {
 	fstat(fd, &buf);
 	return buf.st_size;	
 }	
-const char *em_junk_detect_charset (const char* str) {return 0;}	// HACK FIXME
-int em_junk_iconv(const char* str, int sz, char *out, int out_sz, const char *cs, const char*t) {return 0;}
-
 	
-struct DB_functions_t {	
-	void (*pl_lock)(void);
-	void (*pl_unlock)(void);
-
-	void* (*fopen)( const char * uri );
-	size_t (*fread)( void * buffer, size_t size, size_t count, void * handle );
-	int (*fseek)( void * handle, int64_t offset, int whence );
-
-	long int (*ftell)( void * handle );
-	int (*fclose)( void * handle  );
-
-	void (*conf_get_str)(const char*k, const char*v, char*buf, int maxSize);
-	size_t (*fgetlength)( FILE * f);
-	const char *(*junk_detect_charset) (const char* str);
-	int (*junk_iconv)(const char* str, int sz, char *out, int out_sz, const char *cs, const char*);
-};
-static struct DB_functions_t *deadbeef= 0;
-#else
-static DB_functions_t *deadbeef;
-#endif
-
-
 #define min(x,y) ((x)<(y)?(x):(y))
 #define max(x,y) ((x)>(y)?(x):(y))
 
@@ -268,9 +227,22 @@ struct psf_load_state
     struct psf_tag *tags;
 };
 
-#ifndef EMSCRIPTEN
+#define MAX_LIB_NAME 128
+char requiredLib[MAX_LIB_NAME];
+static int psf_lib_meta(void * context, const char * name, const char * value)
+{
+	if ( !strcasecmp( name, "_lib" ) )
+    {
+		snprintf(requiredLib, MAX_LIB_NAME, "%s", value);
+    }
+	return 0;
+}
+	
+extern int psf_info_meta2(void * context, const char * name, const char * value);// define in adaper.cpp
+
 static int psf_info_meta(void * context, const char * name, const char * value)
 {
+//fprintf(stderr, "dump k: %s v: %s\n", name, value);	
     struct psf_load_state * state = ( struct psf_load_state * ) context;
 
     if ( !strcasecmp( name, "length" ) )
@@ -288,19 +260,15 @@ static int psf_info_meta(void * context, const char * name, const char * value)
         char * end;
         state->refresh = strtoul( value, &end, 10 );
     }
-
-    return 0;
+	psf_info_meta2(context, name, value);
+	return 0;
 }
-#else
-	// define in adaper.cpp
-	extern int psf_info_meta(void * context, const char * name, const char * value);
-#endif
 
 static int psf_info_dump(void * context, const char * name, const char * value)
 {
     struct psf_load_state * state = ( struct psf_load_state * ) context;
 
-fprintf(stderr, "dump k: %s v: %s\n", name, value);	
+//fprintf(stderr, "dump k: %s v: %s\n", name, value);	
 	
     if ( !strcasecmp( name, "length" ) )
     {
@@ -394,28 +362,28 @@ int psf1_load(void * context, const uint8_t * exe, size_t exe_size,
 
 static void * psf_file_fopen( const char * uri )
 {
-    return deadbeef->fopen( uri );
+	return (void*)fopen(uri, "r");
 }
 
 static size_t psf_file_fread( void * buffer, size_t size, size_t count, void * handle )
 {
-    return deadbeef->fread( buffer, size, count, handle );
+	return fread(buffer, size, count, (FILE*)handle );
 }
 
 static int psf_file_fseek( void * handle, int64_t offset, int whence )
 {
-    return deadbeef->fseek( handle, offset, whence );
+	return fseek( (FILE*) handle, offset, whence );
 }
 
 static int psf_file_fclose( void * handle )
 {
-    deadbeef->fclose( handle );
+	fclose( (FILE *) handle  );
     return 0;
 }
 
 static long psf_file_ftell( void * handle )
 {
-    return deadbeef->ftell( handle );
+	return  ftell( (FILE*) handle );
 }
 
 const psf_file_callbacks psf_file_system =
@@ -433,7 +401,6 @@ static int EMU_CALL virtual_readfile(void *context, const char *path, int offset
     return psf2fs_virtual_readfile(context, path, offset, buffer, length);
 }
 
-#ifdef EMSCRIPTEN
 #define PATH_MAX 255
 
 typedef struct {
@@ -447,7 +414,6 @@ typedef struct {
 	Format fmt;
 	int readpos;
 } DB_fileinfo_t;
-#endif
 
 typedef struct {
     DB_fileinfo_t info;
@@ -459,14 +425,12 @@ typedef struct {
     int samples_to_fade;
 } he_info_t;
 
-DB_fileinfo_t *
-he_open (uint32_t hints) {
+
+DB_fileinfo_t *he_open (uint32_t hints) {
     DB_fileinfo_t *_info = (DB_fileinfo_t *)malloc (sizeof (he_info_t));
     memset (_info, 0, sizeof (he_info_t));
     return _info;
 }
-#ifdef EMSCRIPTEN
-
 
 int he_get_sample_rate (DB_fileinfo_t *_info) {
     he_info_t *info = (he_info_t *)_info;
@@ -477,12 +441,11 @@ int he_get_samples_to_play (DB_fileinfo_t *_info) {
     he_info_t *info = (he_info_t *)_info;
 	return info->samples_to_play;
 }
+
 int he_get_samples_played (DB_fileinfo_t *_info) {
     he_info_t *info = (he_info_t *)_info;
 	return info->samples_played;
 }
-	
-	
 	
 int isCompressed(const char *filename) {
 	char* point;
@@ -528,128 +491,186 @@ int inflate2(const void *src, int srcLen, void *dst, int dstLen) {
 
 void * tmp_bios_buffer = 0;
 
-#else 
-int isCompressed(const char *filename) {return 0;}
-int inflate2(const void *src, int srcLen, void *dst, int dstLen) {return 0;}
-#endif
+
+/* tmp util to compress hebios
+void dumpComressed(uint8 * data, long size) {
+	for (int i= 0; i<size; i++) {
+		fprintf(stdout, "%d,", data[i]);
+	}
+}
+void dumpComressedHeBios() {
+
+	uint8 * dataDest= malloc(HEBIOS_SIZE);	// who cares about the leak here..
+	long newSize= HEBIOS_SIZE;
+	if (Z_OK != compress(dataDest, &newSize, hebios, HEBIOS_SIZE)) {
+		fprintf(stderr, "ERROR!");	
+	}
+	
+	fprintf(stdout, "#ifndef __HEBIOS_H\n");
+	fprintf(stdout, "#define __HEBIOS_H\n");
+	fprintf(stdout, "#define HEBIOS_SIZE 524288\n");
+	
+	fprintf(stdout, "static uint8_t zhebios[] = {\n");
+	dumpComressed(dataDest, newSize);
+	fprintf(stdout, "\n};\n");
+	fprintf(stdout, "static uint32_t zhebios_size =%d;\n", newSize);
+	
+	fprintf(stdout, "#endif\n");
+}
+*/
 
 // slightly refactored original heplug.c logic here...
 int he_install_bios(const char *he_bios_path) {
-    if ( !bios_get_imagesize() )
-    {
-        if ( !*he_bios_path ) {
-            trace( "he: no BIOS set\n" );
-            return -1;
-        }
-		
-        DB_FILE * f = deadbeef->fopen( he_bios_path );
-        if ( !f ) {
-            trace( "he: failed to open bios %s\n", he_bios_path );
-            return -1;
-        }
+	
+//	dumpComressedHeBios();		// tmp utility
 
-        void * ps2_bios = malloc( 0x400000 );
-        if ( !ps2_bios ) {
-            deadbeef->fclose( f );
-            trace( "he: out of memory\n" );
-            return -1;
-        }
-		
-#ifdef EMSCRIPTEN
-		int compressionEnabled= 1;
+	if ( !bios_get_imagesize() ) {
+//		if ((he_bios_path == 0) || !strlen(he_bios_path)) {
+#ifdef BUILTIN_HEBIOS	
+			// use built-in hebios
+			void * he_bios = malloc( HEBIOS_SIZE );
+			long hebios_size= HEBIOS_SIZE;
+			if (Z_OK !=  uncompress(he_bios, &hebios_size, zhebios, zhebios_size)) {
+				trace( "he: BIOS uncompress error\n" );
+				return -1;
+			}
+			if (hebios_size != HEBIOS_SIZE) {
+				trace( "he: BIOS uncompress mismatch\n" );
+				return -1;
+			}
+			bios_set_image( he_bios, hebios_size );
+			trace( "he: using built-in hebios\n" );
 #else
-		int compressionEnabled= 0;
-#endif	
-		size_t ps2_bios_size= 0;
-		if (compressionEnabled && isCompressed(he_bios_path)) {
-			size_t compressed_size = deadbeef->fgetlength( f );
-
-			if (tmp_bios_buffer) { free(tmp_bios_buffer);}
-			tmp_bios_buffer= malloc( compressed_size );
-
-			if ( deadbeef->fread( tmp_bios_buffer, 1, compressed_size, f ) < compressed_size ) {
-				free( tmp_bios_buffer );
-				deadbeef->fclose( f );
-				trace( "he: error reading compressed bios\n" );
+//		} else {
+			// install specific bios 
+			if ( !*he_bios_path ) {
+				trace( "he: no BIOS set\n" );
 				return -1;
 			}
 			
-			ps2_bios_size= inflate2(tmp_bios_buffer, compressed_size, ps2_bios, 0x400000);
-			if (ps2_bios_size < 0x400000) {
-				free( ps2_bios );
-				deadbeef->fclose( f );
-				trace( "he: could not uncompress bios\n" );
-				return -1;
-			}		
-		} else {
-			size_t ps2_bios_size = deadbeef->fgetlength( f );
-			if ( ps2_bios_size != 0x400000 ) {
-				deadbeef->fclose( f );
-				trace( "he: bios is wrong size\n" );
+			FILE * f = psf_file_fopen( he_bios_path );
+			if ( !f ) {
+				trace( "he: failed to open bios %s\n", he_bios_path );
 				return -1;
 			}
 
-			if ( deadbeef->fread( ps2_bios, 1, 0x400000, f ) < 0x400000 ) {
-				free( ps2_bios );
-				deadbeef->fclose( f );
-				trace( "he: error reading bios\n" );
+			void * ps2_bios = malloc( 0x400000 );
+			if ( !ps2_bios ) {
+				psf_file_fclose( f );
+				trace( "he: out of memory\n" );
+				return -1;
+			}
+			
+			int compressionEnabled= 1;
+			
+			size_t ps2_bios_size= 0;
+			if (compressionEnabled && isCompressed(he_bios_path)) {
+				size_t compressed_size = em_fgetlength( f );
+
+				if (tmp_bios_buffer) { free(tmp_bios_buffer);}
+				tmp_bios_buffer= malloc( compressed_size );
+
+				if ( psf_file_fread( tmp_bios_buffer, 1, compressed_size, f ) < compressed_size ) {
+					free( tmp_bios_buffer );
+					psf_file_fclose( f );
+					trace( "he: error reading compressed bios\n" );
+					return -1;
+				}
+				
+				ps2_bios_size= inflate2(tmp_bios_buffer, compressed_size, ps2_bios, 0x400000);
+				if (ps2_bios_size < 0x400000) {
+					free( ps2_bios );
+					psf_file_fclose( f );
+					trace( "he: could not uncompress bios\n" );
+					return -1;
+				}		
+			} else {
+				size_t ps2_bios_size = em_fgetlength( f );
+				if ( ps2_bios_size != 0x400000 ) {
+					psf_file_fclose( f );
+					trace( "he: bios is wrong size\n" );
+					return -1;
+				}
+
+				if ( psf_file_fread( ps2_bios, 1, 0x400000, f ) < 0x400000 ) {
+					free( ps2_bios );
+					psf_file_fclose( f );
+					trace( "he: error reading bios\n" );
+					return -1;
+				}
+
+				psf_file_fclose( f );
+			}
+			int bios_size = 0x400000;
+			void * he_bios = mkhebios_create( ps2_bios, &bios_size );
+
+			trace( "he: fucko - %p, %p, %u\n", ps2_bios, he_bios, bios_size );
+
+			free( ps2_bios );
+
+			if ( !he_bios )
+			{
+				trace( "he: error processing bios\n" );
 				return -1;
 			}
 
-			deadbeef->fclose( f );
-		}
-        int bios_size = 0x400000;
-        void * he_bios = mkhebios_create( ps2_bios, &bios_size );
-
-        trace( "he: fucko - %p, %p, %u\n", ps2_bios, he_bios, bios_size );
-
-        free( ps2_bios );
-
-        if ( !he_bios )
-        {
-            trace( "he: error processing bios\n" );
-            return -1;
-        }
-
-        bios_set_image( he_bios, bios_size );
+			bios_set_image( he_bios, bios_size );
+//		}
+#endif
 	}
 	return 0;
 }
 
-#ifndef EMSCRIPTEN
-int
-he_init (DB_fileinfo_t *_info, DB_playItem_t *it) {
-    he_info_t *info = (he_info_t *)_info;
+void* set_emu(he_info_t *info, void *state) {
+	if (info->emu) { 
+		free(info->emu);
+		info->emu= 0; 
+	}
+    info->emu = state;
+	return state;
+}	
 
-    deadbeef->pl_lock ();
-    const char * uri = info->path = strdup( deadbeef->pl_find_meta (it, ":URI") );
-    deadbeef->pl_unlock ();
-#else
 int he_init (DB_fileinfo_t *_info, const char * uri) {
+	
     he_info_t *info = (he_info_t *)_info;
 	info->path = strdup( uri );
-#endif
 	
-    int psf_version = psf_load( uri, &psf_file_system, 0, 0, 0, 0, 0, 0 );
+ //   int psf_version = psf_load( uri, &psf_file_system, 0, 0, 0, 0, 0, 0 );
+	requiredLib[0]= 0;
+    int psf_version = psf_load( uri, &psf_file_system, 0, 0, 0, psf_lib_meta, 0, 0 );
     if (psf_version < 0) {
         trace ("he: failed to open %s\n", uri);
         return -1;
     }
+	
+	if (strlen(requiredLib)) {
+		// lib must be loaded here or else the psf loading will fail..
+		// (enter "retry-mode" if something is missing)
+		// make sure the file will be available in the FS when the song asks for it later..		
+		char tmpFileName[PATH_MAX];   
+		char *p= strrchr(uri, '/');		
+		int pathlen= p?(p-uri+1):0;
+		memcpy(tmpFileName, uri, pathlen);
+		snprintf(tmpFileName+pathlen, PATH_MAX-pathlen, "%s", requiredLib);
 
+		int r= psx_request_file(tmpFileName);	// trigger load & check if ready
+		if (r <0) {
+			return -1; // file not ready
+		}
+	}
+	
     char he_bios_path[PATH_MAX];
-    if ( !bios_get_imagesize()){
-        deadbeef->conf_get_str("he.bios", "", he_bios_path, PATH_MAX);
-		
-		he_install_bios(he_bios_path);		
-	}	
+	memset(he_bios_path, 0, PATH_MAX);	// set specific BIOS here if needed
+
+	he_install_bios(he_bios_path);		
     psx_init();
 
     struct psf_load_state state;
     memset( &state, 0, sizeof(state) );
 
     state.first = 1;
-
-    info->emu = state.emu = malloc( psx_get_state_size( psf_version ) );
+	
+	state.emu= set_emu(info, malloc( psx_get_state_size( psf_version ) ));
     if ( !state.emu ) {
         trace( "he: out of memory\n" );
         return -1;
@@ -693,22 +714,17 @@ int he_init (DB_fileinfo_t *_info, const char * uri) {
     info->samples_to_play = (uint64_t)tag_song_ms * (uint64_t)srate / 1000;
     info->samples_to_fade = (uint64_t)tag_fade_ms * (uint64_t)srate / 1000;
 
-#ifndef EMSCRIPTEN
-    _info->plugin = &he_plugin;
-#endif
     _info->fmt.channels = 2;
     _info->fmt.bps = 16;
     _info->fmt.samplerate = srate;
- #ifndef EMSCRIPTEN
-   _info->fmt.channelmask = _info->fmt.channels == 1 ? DDB_SPEAKER_FRONT_LEFT : (DDB_SPEAKER_FRONT_LEFT | DDB_SPEAKER_FRONT_RIGHT);
- #endif
-   _info->readpos = 0;
+	_info->readpos = 0;
 
+	free_tags(state.tags);
+	
     return 0;
 }
 
-void
-he_free (DB_fileinfo_t *_info) {
+void he_free (DB_fileinfo_t *_info) {
     he_info_t *info = (he_info_t *)_info;
     if (info) {
         if (info->psf2fs) {
@@ -727,9 +743,13 @@ he_free (DB_fileinfo_t *_info) {
     }
 }
 
-int
-he_read (DB_fileinfo_t *_info, char *bytes, int size) {
+int he_read (DB_fileinfo_t *_info, char *bytes, int size) {
+	
     he_info_t *info = (he_info_t *)_info;
+
+	if (info->samples_played >= info->samples_to_play ) {
+		return -1;		// end song	
+	}	
 
     short * samples = (short *) bytes;
     uint32_t sample_count = size / ( 2 * sizeof(short) );
@@ -766,8 +786,7 @@ he_read (DB_fileinfo_t *_info, char *bytes, int size) {
     return ( samples_end - samples_start ) * 2 * sizeof(short);
 }
 
-int
-he_seek_sample (DB_fileinfo_t *_info, int sample) {
+int he_seek_sample (DB_fileinfo_t *_info, int sample) {
     he_info_t *info = (he_info_t *)_info;
     unsigned long int s = sample;
     if (s < info->samples_played) {
@@ -795,6 +814,8 @@ he_seek_sample (DB_fileinfo_t *_info, int sample) {
             psx_set_refresh( info->emu, state.refresh );
 
         info->samples_played = 0;
+		
+		free_tags(state.tags);
     }
     while ( info->samples_played < s ) {
         int to_skip = s - info->samples_played;
@@ -806,183 +827,9 @@ he_seek_sample (DB_fileinfo_t *_info, int sample) {
     _info->readpos = s/(float)_info->fmt.samplerate;
     return 0;
 }
-
-int
-he_seek (DB_fileinfo_t *_info, float time) {
+/*
+int he_seek (DB_fileinfo_t *_info, float time) {
     return he_seek_sample (_info, time * _info->fmt.samplerate);
 }
+*/
 
-static const char *
-convstr (const char* str, int sz, char *out, int out_sz) {
-    int i;
-    for (i = 0; i < sz; i++) {
-        if (str[i] != ' ') {
-            break;
-        }
-    }
-    if (i == sz) {
-        out[0] = 0;
-        return out;
-    }
-
-    const char *cs = deadbeef->junk_detect_charset (str);
-    if (!cs) {
-        return str;
-    }
-    else {
-        if (deadbeef->junk_iconv (str, sz, out, out_sz, cs, "utf-8") >= 0) {
-            return out;
-        }
-    }
-
-    trace ("cdumb: failed to detect charset\n");
-    return NULL;
-}
-
-#ifndef EMSCRIPTEN
-
-DB_playItem_t *
-he_insert (ddb_playlist_t *plt, DB_playItem_t *after, const char *fname) {
-    DB_playItem_t *it = NULL;
-
-    struct psf_load_state state;
-    memset( &state, 0, sizeof(state) );
-
-    int psf_version = psf_load( fname, &psf_file_system, 0, 0, 0, psf_info_dump, &state, 0 );
-
-    if ( psf_version < 0 )
-        return after;
-
-    if ( psf_version != 1 && psf_version != 2 )
-        return after;
-
-    int tag_song_ms = state.tag_song_ms;
-    int tag_fade_ms = state.tag_fade_ms;
-
-    if (!tag_song_ms)
-    {
-        tag_song_ms = ( 2 * 60 + 50 ) * 1000;
-        tag_fade_ms =            10   * 1000;
-    }
-
-    it = deadbeef->pl_item_alloc_init (fname, he_plugin.plugin.id);
-
-    char junk_buffer[2][1024];
-
-    struct psf_tag * tag = state.tags;
-    while ( tag ) {
-        if ( !strncasecmp( tag->name, "replaygain_", 11 ) ) {
-            double fval = atof( tag->value );
-            if ( !strcasecmp( tag->name + 11, "album_gain" ) ) {
-                deadbeef->pl_set_item_replaygain( it, DDB_REPLAYGAIN_ALBUMGAIN, fval );
-            } else if ( !strcasecmp( tag->name + 11, "album_peak" ) ) {
-                deadbeef->pl_set_item_replaygain( it, DDB_REPLAYGAIN_ALBUMPEAK, fval );
-            } else if ( !strcasecmp( tag->name + 11, "track_gain" ) ) {
-                deadbeef->pl_set_item_replaygain( it, DDB_REPLAYGAIN_TRACKGAIN, fval );
-            } else if ( !strcasecmp( tag->name + 11, "track_peak" ) ) {
-                deadbeef->pl_set_item_replaygain( it, DDB_REPLAYGAIN_TRACKPEAK, fval );
-            }
-        } else {
-            if ( !state.utf8 ) {
-                junk_buffer[0][ 1023 ] = '\0';
-                junk_buffer[1][ 1023 ] = '\0';
-                deadbeef->pl_add_meta (it, convstr( tag->name, strlen( tag->name ), junk_buffer[0], 1023 ),
-                        convstr( tag->value, strlen( tag->value ), junk_buffer[1], 1023 ));
-            } else {
-                deadbeef->pl_add_meta (it, tag->name, tag->value);
-            }
-        }
-        tag = tag->next;
-    }
-    free_tags( state.tags );
-
-    deadbeef->plt_set_item_duration (plt, it, (float)(tag_song_ms + tag_fade_ms) / 1000.f);
-    deadbeef->pl_add_meta (it, ":FILETYPE", psf_version == 2 ? "PSF2" : "PSF");
-    after = deadbeef->plt_insert_item (plt, after, it);
-    deadbeef->pl_item_unref (it);
-    return after;
-}
-#endif
-int
-he_start (void) {
-    return 0;
-}
-
-int
-he_stop (void) {
-    return 0;
-}
-
-#ifndef EMSCRIPTEN
-DB_plugin_t *
-he_load (DB_functions_t *api) {
-    deadbeef = api;
-    return DB_PLUGIN (&he_plugin);
-}
-#else
-void he_load (void) {
-	if (!deadbeef) {
-		deadbeef = malloc(sizeof( struct DB_functions_t ));
-		deadbeef->pl_lock= em_pl_lock;
-		deadbeef->pl_unlock= em_pl_unlock;
-		deadbeef->fopen= em_fopen;
-		deadbeef->fread= em_fread;
-		deadbeef->fseek= em_fseek;
-		deadbeef->ftell= em_ftell;
-		deadbeef->fclose= em_fclose;
-		deadbeef->conf_get_str= em_conf_get_str;
-		deadbeef->fgetlength= em_fgetlength;
-		deadbeef->junk_detect_charset= em_junk_detect_charset;
-		deadbeef->junk_iconv= em_junk_iconv;
-	}
-}
-#endif
-static const char *exts[] = { "psf", "minipsf", "psf2", "minipsf2", NULL };
-
-#ifndef EMSCRIPTEN
-static const char settings_dlg[] =
-    "property \"PS2 BIOS image\" file he.bios \"\";"
-;
-
-// define plugin interface
-DB_decoder_t he_plugin = {
-    .plugin.api_vmajor = 1,
-    .plugin.api_vminor = 0,
-    .plugin.type = DB_PLUGIN_DECODER,
-    .plugin.version_major = 1,
-    .plugin.version_minor = 0,
-    .plugin.name = "Highly Experimental PSF player",
-    .plugin.descr = "PSF and PSF2 player based on Neill Corlett's Highly Experimental.",
-    .plugin.copyright = 
-        "Copyright (C) 2003-2012 Chris Moeller <kode54@gmail.com>\n"
-        "Copyright (C) 2003-2012 Neill Corlett <neill@neillcorlett.com>\n"
-        "\n"
-        "This program is free software; you can redistribute it and/or\n"
-        "modify it under the terms of the GNU General Public License\n"
-        "as published by the Free Software Foundation; either version 2\n"
-        "of the License, or (at your option) any later version.\n"
-        "\n"
-        "This program is distributed in the hope that it will be useful,\n"
-        "but WITHOUT ANY WARRANTY; without even the implied warranty of\n"
-        "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n"
-        "GNU General Public License for more details.\n"
-        "\n"
-        "You should have received a copy of the GNU General Public License\n"
-        "along with this program; if not, write to the Free Software\n"
-        "Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.\n"
-    ,
-    .plugin.website = "http://github.com/kode54",
-    .plugin.start = he_start,
-    .plugin.stop = he_stop,
-    .plugin.id = "he",
-    .plugin.configdialog = settings_dlg,
-    .open = he_open,
-    .init = he_init,
-    .free = he_free,
-    .read = he_read,
-    .seek = he_seek,
-    .seek_sample = he_seek_sample,
-    .insert = he_insert,
-    .exts = exts,
-};
-#endif

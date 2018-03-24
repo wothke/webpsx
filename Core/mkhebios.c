@@ -898,7 +898,7 @@ void expandOverlays() {
 		
 		long newSize= modules_list[i].size;
 		if (Z_OK != uncompress(dataDest, &destSize, modules_list[i].data, modules_list[i].size)) {
-			fprintf(stderr, "ERROR!");	
+			fprintf(stderr, "ERROR overlay expand %s!\n", modules_list[i].name);	
 		}
 		modules_list[i].data= (const uint8*)dataDest;	// replace compressed data (too bad about the mem leak..)
 		modules_list[i].size= destSize;		
