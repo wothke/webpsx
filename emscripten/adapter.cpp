@@ -29,13 +29,13 @@
 #include "psx.h"
 
 
-
+/*
 #ifdef EMSCRIPTEN
 #define EMSCRIPTEN_KEEPALIVE __attribute__((used))
 #else
 #define EMSCRIPTEN_KEEPALIVE
 #endif
-
+*/
 #define BUF_SIZE	1024
 #define TEXT_MAX	255
 #define NUM_MAX	15
@@ -58,6 +58,48 @@ char copyright_str[TEXT_MAX];
 char psfby_str[TEXT_MAX];
 
 
+// hack to pass all those japaneese info texts safely to the JavaScript side:
+static const std::string chars = 
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+std::string base64_encode(unsigned char* input, unsigned int len) {
+  int i, j = 0;
+  unsigned char arr3[3];
+  unsigned char arr4[4];
+  std::string ret;
+  
+  while (len--) {
+    arr3[i++] = *(input++);
+    if (i == 3) {
+      arr4[0] = (arr3[0] & 0xfc) >> 2;
+      arr4[1] = ((arr3[0] & 0x03) << 4) + ((arr3[1] & 0xf0) >> 4);
+      arr4[2] = ((arr3[1] & 0x0f) << 2) + ((arr3[2] & 0xc0) >> 6);
+      arr4[3] = arr3[2] & 0x3f;
+
+      for(i = 0; (i <4) ; i++) {
+        ret += chars[arr4[i]];
+		}
+      i = 0;
+    }
+  }
+  if (i) {
+    for(j = i; j < 3; j++) {
+      arr3[j] = '\0';
+	}
+    arr4[0] = ( arr3[0] & 0xfc) >> 2;
+    arr4[1] = ((arr3[0] & 0x03) << 4) + ((arr3[1] & 0xf0) >> 4);
+    arr4[2] = ((arr3[1] & 0x0f) << 2) + ((arr3[2] & 0xc0) >> 6);
+
+    for (j = 0; (j < i + 1); j++) {
+      ret += chars[arr4[j]];
+	}
+    while((i++ < 3)) {
+      ret += '=';
+	}
+  }
+
+  return ret;
+}
+
 // use heplug.c impl
 extern "C" {
 
@@ -75,20 +117,22 @@ extern "C" {
 	int he_get_sample_rate (DB_fileinfo_t *_info);
 	
 	int psf_info_meta2(void * context, const char * name, const char * value) {
+		std::string encValue= base64_encode((unsigned char*)value, strlen(value));
+		
 		if ( !strcasecmp( name, "title" ) ) {
-			snprintf(title_str, TEXT_MAX, "%s", value);
+			snprintf(title_str, TEXT_MAX, "%s", encValue.c_str());
 		} else if ( !strcasecmp( name, "artist" ) ) {
-			snprintf(artist_str, TEXT_MAX, "%s", value);
+			snprintf(artist_str, TEXT_MAX, "%s", encValue.c_str());
 		} else if ( !strcasecmp( name, "game" ) ) {
-			snprintf(game_str, TEXT_MAX, "%s", value);
+			snprintf(game_str, TEXT_MAX, "%s", encValue.c_str());
 		} else if ( !strcasecmp( name, "year" ) ) {
-			snprintf(year_str, TEXT_MAX, "%s", value);
+			snprintf(year_str, TEXT_MAX, "%s", encValue.c_str());
 		} else if ( !strcasecmp( name, "genre" ) ) {
-			snprintf(genre_str, TEXT_MAX, "%s", value);
+			snprintf(genre_str, TEXT_MAX, "%s", encValue.c_str());
 		} else if ( !strcasecmp( name, "copyright" ) ) {
-			snprintf(copyright_str, TEXT_MAX, "%s", value);
+			snprintf(copyright_str, TEXT_MAX, "%s", encValue.c_str());
 		} else if ( !strcasecmp( name, "psfby" ) ) {
-			snprintf(psfby_str, TEXT_MAX, "%s", value);
+			snprintf(psfby_str, TEXT_MAX, "%s", encValue.c_str());
 		} 
 		return 0;
 	}	

@@ -229,12 +229,17 @@ struct psf_load_state
 
 #define MAX_LIB_NAME 128
 char requiredLib[MAX_LIB_NAME];
+char requiredLib2[MAX_LIB_NAME];
 static int psf_lib_meta(void * context, const char * name, const char * value)
 {
 	if ( !strcasecmp( name, "_lib" ) )
     {
 		snprintf(requiredLib, MAX_LIB_NAME, "%s", value);
-    }
+    } 
+	else if ( !strcasecmp( name, "_lib2" ) )	//see modules/Playstation%20Sound%20Format/Kenji%20Yamagishi/Burger%20Burger/bgm-02.minipsf
+    {
+		snprintf(requiredLib2, MAX_LIB_NAME, "%s", value);
+    } 
 	return 0;
 }
 	
@@ -637,6 +642,7 @@ int he_init (DB_fileinfo_t *_info, const char * uri) {
 	
  //   int psf_version = psf_load( uri, &psf_file_system, 0, 0, 0, 0, 0, 0 );
 	requiredLib[0]= 0;
+	requiredLib2[0]= 0;
     int psf_version = psf_load( uri, &psf_file_system, 0, 0, 0, psf_lib_meta, 0, 0 );
     if (psf_version < 0) {
         trace ("he: failed to open %s\n", uri);
@@ -652,6 +658,21 @@ int he_init (DB_fileinfo_t *_info, const char * uri) {
 		int pathlen= p?(p-uri+1):0;
 		memcpy(tmpFileName, uri, pathlen);
 		snprintf(tmpFileName+pathlen, PATH_MAX-pathlen, "%s", requiredLib);
+
+		int r= psx_request_file(tmpFileName);	// trigger load & check if ready
+		if (r <0) {
+			return -1; // file not ready
+		}
+	}
+	if (strlen(requiredLib2)) {
+		// lib must be loaded here or else the psf loading will fail..
+		// (enter "retry-mode" if something is missing)
+		// make sure the file will be available in the FS when the song asks for it later..		
+		char tmpFileName[PATH_MAX];   
+		char *p= strrchr(uri, '/');		
+		int pathlen= p?(p-uri+1):0;
+		memcpy(tmpFileName, uri, pathlen);
+		snprintf(tmpFileName+pathlen, PATH_MAX-pathlen, "%s", requiredLib2);
 
 		int r= psx_request_file(tmpFileName);	// trigger load & check if ready
 		if (r <0) {

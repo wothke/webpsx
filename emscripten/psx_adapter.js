@@ -22,6 +22,8 @@
 
 PSXBackendAdapter = (function(){ var $this = function (presetBIOS, modlandMode) {
 		$this.base.call(this, backend_PSX.Module, 2);
+		this._chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+		
 		this._manualSetupComplete= presetBIOS?false:true;
 		this._undefined;
 		this._currentPath;
@@ -99,6 +101,7 @@ PSXBackendAdapter = (function(){ var $this = function (presetBIOS, modlandMode) 
 		mapUrl: function(filename) {			
 			// used transform the "internal filename" to a valid URL
 			var uri= this.mapFs2Uri(filename);
+			uri= decodeURI(uri);	// replace escape sequences... 
 			return uri;
 		},
 		mapInternalFilename: function(overridePath, basePath, filename) {
@@ -114,7 +117,7 @@ PSXBackendAdapter = (function(){ var $this = function (presetBIOS, modlandMode) 
 			var sp = filename.split('/');
 			var fn = sp[sp.length-1];					
 			var path= filename.substring(0, filename.lastIndexOf("/"));	
-			if (path.lenght) path= path+"/";
+			if (path.lenght) path= path+"/";	// FIXME XXX typo! why misspelled path.length still work here?
 			
 			return [path, fn];
 		},
@@ -197,6 +200,81 @@ PSXBackendAdapter = (function(){ var $this = function (presetBIOS, modlandMode) 
 		teardown: function() {
 			this.Module.ccall('emu_teardown', 'number');	// just in case
 		},
+		// base64 decoding util
+		findChar: function(str, c) {
+			for (var i= 0; i<str.length; i++) {
+				if (str.charAt(i) == c) {
+					return i;
+				}
+			}
+			return -1;
+		},
+		alphanumeric: function(inputtxt) {
+			var letterNumber = /^[0-9a-zA-Z]+$/;
+			return inputtxt.match(letterNumber);
+		},
+		is_base64: function(c) {
+		  return (this.alphanumeric(""+c) || (c == '+') || (c == '/'));
+		}, 
+		base64Decode: function(encoded) {
+			var in_len= encoded.length;
+			var i= j= in_= 0;
+			var arr4= new Array(4);
+			var arr3= new Array(3);
+			var ret= "";
+			var carry=-1;
+
+			while (in_len-- && ( encoded.charAt(in_) != '=') && this.is_base64(encoded.charAt(in_))) {
+				arr4[i++]= encoded.charAt(in_); in_++;
+				if (i ==4) {
+					for (i = 0; i <4; i++) {
+						arr4[i] = this.findChar(this._chars, arr4[i]);
+					}
+					arr3[0] = ( arr4[0] << 2       ) + ((arr4[1] & 0x30) >> 4);
+					arr3[1] = ((arr4[1] & 0xf) << 4) + ((arr4[2] & 0x3c) >> 2);
+					arr3[2] = ((arr4[2] & 0x3) << 6) +   arr4[3];
+
+					for (i = 0; (i < 3); i++) {
+						var val= arr3[i];
+						
+						if (carry > -1) {	// only allow 16bit max
+							val= (carry << 8) + val;
+							carry= -1;
+							ret += String.fromCharCode(val)	// UNICODE
+							
+						} else if (val > 127) {	// treat as unicode
+							carry= val;
+						} else {
+							ret += String.fromCharCode(val);	// ASCII
+						}
+					}
+					i = 0;
+				}
+			}
+			if (i) {
+				for (j = 0; j < i; j++) {
+					arr4[j] = this.findChar(this._chars, arr4[j]);
+				}
+				arr3[0] = (arr4[0] << 2) + ((arr4[1] & 0x30) >> 4);
+				arr3[1] = ((arr4[1] & 0xf) << 4) + ((arr4[2] & 0x3c) >> 2);
+
+				for (j = 0; (j < i - 1); j++) { 
+					var val= arr3[j];
+					
+					if (carry > -1) {	// only allow 16bit max
+						val= (carry << 8) + val;
+						carry= -1;
+						ret += String.fromCharCode(val)	// UNICODE
+						
+					} else if (val > 127) {	// treat as unicode
+						carry= val;
+					} else {
+						ret += String.fromCharCode(val);	// ASCII
+					}
+				}
+			}
+			return ret;
+		},	
 		getSongInfoMeta: function() {
 			return {title: String,
 					artist: String, 
@@ -213,13 +291,14 @@ PSXBackendAdapter = (function(){ var $this = function (presetBIOS, modlandMode) 
 			var ret = this.Module.ccall('emu_get_track_info', 'number');
 
 			var array = this.Module.HEAP32.subarray(ret>>2, (ret>>2)+numAttr);
-			result.title= this.Module.Pointer_stringify(array[0]);
-			if (!result.title.length) result.title= filename;		
-			result.artist= this.Module.Pointer_stringify(array[1]);		
-			result.game= this.Module.Pointer_stringify(array[2]);
-			result.year= this.Module.Pointer_stringify(array[3]);
-			result.genre= this.Module.Pointer_stringify(array[4]);
-			result.copyright= this.Module.Pointer_stringify(array[5]);
-			result.psfby= this.Module.Pointer_stringify(array[6]);
+			result.title= this.base64Decode(this.Module.Pointer_stringify(array[0]));
+			if (!result.title.length) result.title= filename.replace(/^.*[\\\/]/, '').split('.').slice(0, -1).join('.');
+
+			result.artist= this.base64Decode(this.Module.Pointer_stringify(array[1]));		
+			result.game= this.base64Decode(this.Module.Pointer_stringify(array[2]));
+			result.year= this.base64Decode(this.Module.Pointer_stringify(array[3]));
+			result.genre= this.base64Decode(this.Module.Pointer_stringify(array[4]));
+			result.copyright= this.base64Decode(this.Module.Pointer_stringify(array[5]));
+			result.psfby= this.base64Decode(this.Module.Pointer_stringify(array[6]));
 		}
 	});	return $this; })();
